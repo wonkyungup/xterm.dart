@@ -101,6 +101,10 @@ class BufferLine with IndexedItem {
   }
 
   void setCell(int index, int char, int witdh, CursorStyle style) {
+    // 4.0.0 버그 패치: wide-char가 마지막 칸에 걸치면 Uint32List index
+    // 초과로 RangeError. 그 한 셀만 drop하고 터미널은 살림. 1term 전용.
+    if (index >= _cells.length) return;
+    
     final offset = index * _cellSize;
     _data[offset + _cellForeground] = style.foreground;
     _data[offset + _cellBackground] = style.background;
