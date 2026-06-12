@@ -248,6 +248,8 @@ class BufferLine with IndexedItem {
       return;
     }
 
+    final oldLength = _length;
+
     if (length > _length) {
       final newBufferSize = _calcCapacity(length) * _cellSize;
 
@@ -257,8 +259,17 @@ class BufferLine with IndexedItem {
         _data = newBuffer;
       }
     }
-
+  
     _length = length;
+
+    // 4.0.0 버그 패치: 폭 줄였다 늘리면 옛 컬럼 데이터가 부활하는 문제.
+    // _length 변동 구간의 cell을 0으로 클리어해서 좁아질 때 뒤쪽 stale 데이터
+    // 제거 + 다시 넓어질 때도 새로 노출되는 영역이 비어있게 보장.
+    final lo = oldLength < length ? oldLength : length;
+    final hi = oldLength < length ? length : oldLength;
+    for (var i = lo * _cellSize; i < hi * _cellSize; i++) {
+      _data[i] = 0;
+    }
 
     for (var i = 0; i < _anchors.length; i++) {
       final anchor = _anchors[i];
