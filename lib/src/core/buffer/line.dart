@@ -58,6 +58,7 @@ class BufferLine with IndexedItem {
   }
 
   int getWidth(int index) {
+    if (index < 0 || index >= _length) return 0;
     return _data[index * _cellSize + _cellContent] >> CellContent.widthShift;
   }
 
@@ -139,6 +140,13 @@ class BufferLine with IndexedItem {
   /// Erase cells whose index satisfies [start] <= index < [end]. Erased cells
   /// are filled with [style].
   void eraseRange(int start, int end, CursorStyle style) {
+    // 4.0.0 버그 패치: 리사이즈 후 옛 BufferLine의 _length를 초과하는
+    // cursor x / terminal cols로 호출되면 getWidth(start-1)에서 RangeError.
+    if (start < 0) start = 0;
+    if (end > _length) end = _length;
+    if (start >= end) return;
+
+    
     // reset cell one to the left if start is second cell of a wide char
     if (start > 0 && getWidth(start - 1) == 2) {
       eraseCell(start - 1, style);
