@@ -391,6 +391,11 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     return size.height - _padding.vertical;
   }
 
+  /// Painted height of the terminal in logical pixels. Exposed for the gesture
+  /// handler's edge auto-scroll. Safe to read from gesture callbacks because the
+  /// render object reads its own size.
+  double get viewportHeight => hasSize ? size.height : 0;
+
   double get _maxScrollExtent {
     return max(_terminalHeight - _viewportHeight, 0.0);
   }
