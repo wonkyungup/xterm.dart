@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
+import 'package:xterm/src/core/buffer/cell_offset.dart';
 import 'package:xterm/src/core/mouse/button.dart';
 import 'package:xterm/src/core/mouse/button_state.dart';
 import 'package:xterm/src/terminal_view.dart';
@@ -56,6 +57,11 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   RenderTerminal get renderTerminal => terminalView.renderTerminal;
 
   DragStartDetails? _lastDragStartDetails;
+
+  /// Buffer cell where the current mouse drag-selection started. Captured once
+  /// at drag start so the selection base stays glued to the same content even
+  /// if the viewport scrolls mid-drag. Null for non-mouse (word-select) drags.
+  CellOffset? _dragStartCell;
 
   LongPressStartDetails? _lastLongPressStartDetails;
 
@@ -177,15 +183,24 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
   void onDragStart(DragStartDetails details) {
     _lastDragStartDetails = details;
 
-    details.kind == PointerDeviceKind.mouse
-        ? renderTerminal.selectCharacters(details.localPosition)
-        : renderTerminal.selectWord(details.localPosition);
+    if (details.kind == PointerDeviceKind.mouse) {
+      _dragStartCell = renderTerminal.getCellOffset(details.localPosition);
+      renderTerminal.selectCharacters(details.localPosition);
+    } else {
+      _dragStartCell = null;
+      renderTerminal.selectWord(details.localPosition);
+    }
   }
 
   void onDragUpdate(DragUpdateDetails details) {
-    renderTerminal.selectCharacters(
-      _lastDragStartDetails!.localPosition,
-      details.localPosition,
-    );
+    final base = _dragStartCell;
+    if (base != null) {
+      renderTerminal.selectCharactersFrom(base, details.localPosition);
+    } else {
+      renderTerminal.selectCharacters(
+        _lastDragStartDetails!.localPosition,
+        details.localPosition,
+      );
+    }
   }
 }
