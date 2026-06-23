@@ -226,6 +226,12 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
     if (count > _length) count = _length;
     _startIndex += count;
     _startIndex %= _array.length;
+    // Keep the absolute start index in sync with the dropped elements, exactly
+    // like [push] does when it trims a full buffer. Without this, every
+    // remaining item's `index` (== _absoluteIndex - _absoluteStartIndex) stays
+    // inflated by [count] after a trim (e.g. `clear`/clearScrollback), so
+    // selection anchors resolve to rows offset below the pointer.
+    _absoluteStartIndex += count;
     _length -= count;
   }
 

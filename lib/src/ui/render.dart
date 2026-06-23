@@ -298,6 +298,25 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     }
   }
 
+  /// Like [selectCharacters] but the selection base [fromPosition] is a fixed
+  /// buffer cell (captured once at drag start) rather than re-derived from a
+  /// screen position each update. This keeps the selection's start glued to the
+  /// same content when the viewport scrolls mid-drag, instead of jumping to
+  /// whatever line currently sits under the original screen pixel.
+  void selectCharactersFrom(CellOffset fromPosition, Offset to) {
+    final maxRow = _terminal.buffer.lines.length - 1;
+    final fromRow = fromPosition.y.clamp(0, maxRow);
+    final from = CellOffset(fromPosition.x, fromRow);
+    var toPosition = getCellOffset(to);
+    if (toPosition.x >= from.x) {
+      toPosition = CellOffset(toPosition.x + 1, toPosition.y);
+    }
+    _controller.setSelection(
+      _terminal.buffer.createAnchorFromOffset(from),
+      _terminal.buffer.createAnchorFromOffset(toPosition),
+    );
+  }
+
   /// Send a mouse event at [offset] with [button] being currently in [buttonState].
   bool mouseEvent(
     TerminalMouseButton button,
@@ -371,6 +390,11 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   double get _viewportHeight {
     return size.height - _padding.vertical;
   }
+
+  /// Painted height of the terminal in logical pixels. Exposed for the gesture
+  /// handler's edge auto-scroll. Safe to read from gesture callbacks because the
+  /// render object reads its own size.
+  double get viewportHeight => hasSize ? size.height : 0;
 
   double get _maxScrollExtent {
     return max(_terminalHeight - _viewportHeight, 0.0);

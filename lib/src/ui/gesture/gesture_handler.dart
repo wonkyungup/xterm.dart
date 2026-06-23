@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
+import 'package:xterm/src/core/buffer/cell_offset.dart';
 import 'package:xterm/src/core/mouse/button.dart';
 import 'package:xterm/src/core/mouse/button_state.dart';
 import 'package:xterm/src/terminal_view.dart';
@@ -57,6 +60,19 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
 
   DragStartDetails? _lastDragStartDetails;
 
+  /// Buffer cell where the current mouse drag-selection started. Captured once
+  /// at drag start so the selection base stays glued to the same content even
+  /// if the viewport scrolls mid-drag. Null for non-mouse (word-select) drags.
+  CellOffset? _dragStartCell;
+
+  /// Latest drag position (local to the terminal) during a mouse drag-select.
+  /// Used by the edge auto-scroll timer to keep extending the selection.
+  Offset? _lastDragLocalPosition;
+
+  /// Repeats while the drag is held past the top/bottom edge, scrolling the
+  /// viewport so the selection can extend beyond the visible area.
+  Timer? _autoScrollTimer;
+
   LongPressStartDetails? _lastLongPressStartDetails;
 
   @override
@@ -75,8 +91,15 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
       // onLongPressUp: onLongPressUp,
       onDragStart: onDragStart,
       onDragUpdate: onDragUpdate,
+      onDragEnd: onDragEnd,
       onDoubleTapDown: onDoubleTapDown,
     );
+  }
+
+  @override
+  void dispose() {
+    _stopAutoScroll();
+    super.dispose();
   }
 
   bool get _shouldSendTapEvent =>
@@ -176,16 +199,93 @@ class _TerminalGestureHandlerState extends State<TerminalGestureHandler> {
 
   void onDragStart(DragStartDetails details) {
     _lastDragStartDetails = details;
+    _lastDragLocalPosition = details.localPosition;
 
-    details.kind == PointerDeviceKind.mouse
-        ? renderTerminal.selectCharacters(details.localPosition)
-        : renderTerminal.selectWord(details.localPosition);
+    if (details.kind == PointerDeviceKind.mouse) {
+      _dragStartCell = renderTerminal.getCellOffset(details.localPosition);
+      renderTerminal.selectCharacters(details.localPosition);
+    } else {
+      _dragStartCell = null;
+      renderTerminal.selectWord(details.localPosition);
+    }
   }
 
   void onDragUpdate(DragUpdateDetails details) {
-    renderTerminal.selectCharacters(
-      _lastDragStartDetails!.localPosition,
-      details.localPosition,
-    );
+    _lastDragLocalPosition = details.localPosition;
+    final base = _dragStartCell;
+    if (base != null) {
+      renderTerminal.selectCharactersFrom(base, details.localPosition);
+      _updateAutoScroll();
+    } else {
+      renderTerminal.selectCharacters(
+        _lastDragStartDetails!.localPosition,
+        details.localPosition,
+      );
+    }
+  }
+
+  void onDragEnd(DragEndDetails details) {
+    _stopAutoScroll();
+    _dragStartCell = null;
+    _lastDragLocalPosition = null;
+  }
+
+  /// Starts the edge auto-scroll timer if the latest drag position is past the
+  /// top/bottom edge of the viewport, otherwise stops it.
+  void _updateAutoScroll() {
+    final pos = _lastDragLocalPosition;
+    if (pos == null || _dragStartCell == null) {
+      _stopAutoScroll();
+      return;
+    }
+    final height = renderTerminal.viewportHeight;
+    if (pos.dy >= 0 && pos.dy <= height) {
+      _stopAutoScroll();
+      return;
+    }
+    _autoScrollTimer ??=
+        Timer.periodic(const Duration(milliseconds: 16), (_) => _autoScrollTick());
+  }
+
+  void _stopAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+  }
+
+  /// One auto-scroll step: scroll the viewport toward the edge the pointer is
+  /// past, then re-extend the selection to the content now under the pointer.
+  void _autoScrollTick() {
+    final pos = _lastDragLocalPosition;
+    final base = _dragStartCell;
+    if (pos == null || base == null) {
+      _stopAutoScroll();
+      return;
+    }
+    final controller = terminalView.scrollController;
+    if (!controller.hasClients) {
+      _stopAutoScroll();
+      return;
+    }
+
+    final height = renderTerminal.viewportHeight;
+    final double overshoot;
+    if (pos.dy < 0) {
+      overshoot = pos.dy; // negative → scroll up
+    } else if (pos.dy > height) {
+      overshoot = pos.dy - height; // positive → scroll down
+    } else {
+      _stopAutoScroll();
+      return;
+    }
+
+    // A few pixels per tick, faster the further past the edge (capped).
+    final step = overshoot.sign * (4.0 + overshoot.abs() / 8.0).clamp(4.0, 40.0);
+    final position = controller.position;
+    final target = (position.pixels + step)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (target != position.pixels) {
+      controller.jumpTo(target);
+    }
+    renderTerminal.selectCharactersFrom(base, pos);
   }
 }
