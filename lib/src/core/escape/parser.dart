@@ -408,6 +408,11 @@ class EscapeParser {
   ///
   /// https://terminalguide.namepad.de/seq/csi_sm/
   void _csiHandleSgr() {
+    // A prefixed `m` is not SGR: `CSI > Ps ; Ps m` is XTMODKEYS (vim sends
+    // `CSI > 4 ; 2 m` on startup) and `CSI ? Ps m` is XTQMODKEYS. Reading them
+    // as SGR turned `>4;2m` into underline + faint for everything drawn after.
+    if (_csi.prefix != null) return;
+
     final params = _csi.params;
 
     if (params.isEmpty) {
